@@ -1,0 +1,111 @@
+
+Lab assignment 4
+Majbritt Lindholt Stenbøg
+
+packages:
+```{r}
+library(psychTools)
+library(lavaan) 
+library(semPlot)
+library(tidyverse) 
+library(CompQuadForm)
+library(ICS)
+```
+
+Dataset:
+```{r}
+my_data = holzinger.swineford
+
+view(my_data)
+```
+
+Task 1:
+
+Model A:
+```{r}
+model_A <- 
+"
+# Measurement model
+Vis_per =~ t01_visperc + t02_cubes + t03_frmbord + t04_lozenges
+Verbal_a =~ t06_paracomp + t07_sentcomp + t09_wordmean
+Pros_spd =~ t10_addition + t12_countdot + t13_sccaps 
+
+"
+```
+
+Fit the model:
+```{r}
+fitmodelA <- sem(model_A, data=my_data)
+
+semPaths(fitmodelA)
+```
+
+Estimate normal distribution:
+```{r}
+summary(fitmodelA)
+
+mvnorm.kur.test(my_data[,c("t01_visperc", "t02_cubes", "t03_frmbord", "t04_lozenges", "t06_paracomp",  "t07_sentcomp", "t09_wordmean","t10_addition", "t12_countdot", "t13_sccaps")]) 
+# significant
+
+mvnorm.skew.test(my_data[,c("t01_visperc", "t02_cubes", "t03_frmbord", "t04_lozenges", "t06_paracomp",  "t07_sentcomp", "t09_wordmean","t10_addition", "t12_countdot", "t13_sccaps")]) 
+# significant
+```
+
+So it violates normal distribution. Now i will fix this by adding robust estimates:
+```{r}
+fitmodelA_MLM <- sem(model_A, data=my_data, estimator = "MLM")
+
+summary(fitmodelA_MLM, fit.measures= T, rsquare = T, standardized = T)
+
+semPaths(fitmodelA_MLM, whatLabels = "est", label.scale =0, edge.label.cex =0.8)
+```
+
+Task 2:
+model B:
+```{r}
+model_B <- 
+"
+# Measurement model
+Vis_per =~ t01_visperc + t02_cubes + t03_frmbord + t04_lozenges
+Verbal_a =~ t06_paracomp + t07_sentcomp + t09_wordmean
+Pros_spd =~ t10_addition + t12_countdot + t13_sccaps 
+# correlation
+t10_addition ~~ t12_countdot
+"
+```
+
+now model B was created. I will run the same code for model B in order to compare it with model A:
+```{r}
+fitmodelB <- sem(model_B, data=my_data)
+
+semPaths(fitmodelB)
+```
+
+```{r}
+fitmodelB_MLM <- sem(model_B, data=my_data, estimator = "MLM")
+
+summary(fitmodelB_MLM, fit.measures = T, rsquare = T)
+```
+
+
+which manifest variable is least influenced:
+```{r}
+summary(fitmodelB_MLM, fit.measures = T, ci =95, rsquare = T,standardized = T)
+```
+
+If we want to visualise this with a path diagram:
+```{r}
+semPaths(fitmodelB_MLM,residuals = T, whatLabels = "std",label.scale =0, edge.label.cex =0.8)
+```
+
+task 3:
+```{r}
+indirect_eff <- 0.23*0.38
+direct_eff <-  0.31
+indirect_eff + direct_eff
+indirect_eff
+```
+
+
+
+
