@@ -1,0 +1,509 @@
+---
+title: "lab assignment 3"
+author: "Majbritt Lindholt Stenbøg"
+---
+Packages used:
+```{r}
+
+library(psych) 
+library(car) 
+library(GGally) 	
+library(ggcorrplot)
+library(GPArotation) 	
+library(MVN) 
+library(ICS) 
+library(FactoMineR) 
+library(factoextra) 
+library(paran) 
+library(gridExtra)
+
+# Custom function
+fviz_loadnings_with_cor <- function(mod, axes = 1, loadings_above = 0.4){	
+  require(factoextra)	
+  require(dplyr)	
+  require(ggplot2)	
+	
+	
+	
+if(!is.na(as.character(mod$call$call)[1])){	
+  if(as.character(mod$call$call)[1] == "PCA"){	
+  contrib_and_cov = as.data.frame(rbind(mod[["var"]][["contrib"]], mod[["var"]][["cor"]]))	
+	
+vars = rownames(mod[["var"]][["contrib"]])	
+attribute_type = rep(c("contribution","correlation"), each = length(vars))	
+contrib_and_cov = cbind(contrib_and_cov, attribute_type)	
+contrib_and_cov	
+	
+plot_data = cbind(as.data.frame(cbind(contrib_and_cov[contrib_and_cov[,"attribute_type"] == "contribution",axes], contrib_and_cov[contrib_and_cov[,"attribute_type"] == "correlation",axes])), vars)	
+names(plot_data) = c("contribution", "correlation", "vars")	
+	
+plot_data = plot_data %>% 	
+  mutate(correlation = round(correlation, 2))	
+	
+plot = plot_data %>% 	
+  ggplot() +	
+  aes(x = reorder(vars, contribution), y = contribution, gradient = correlation, label = correlation)+	
+  geom_col(aes(fill = correlation)) +	
+  geom_hline(yintercept = mean(plot_data$contribution), col = "red", lty = "dashed") + scale_fill_gradient2() +	
+  xlab("variable") +	
+  coord_flip() +	
+  geom_label(color = "black", fontface = "bold", position = position_dodge(0.5))	
+	
+	
+}	
+} else if(!is.na(as.character(mod$Call)[1])){	
+  	
+  if(as.character(mod$Call)[1] == "fa"){	
+    loadings_table = mod$loadings %>% 	
+      matrix(ncol = ncol(mod$loadings)) %>% 	
+      as_tibble() %>% 	
+      mutate(variable = mod$loadings %>% rownames()) %>% 	
+      gather(factor, loading, -variable) %>% 	
+      mutate(sign = if_else(loading >= 0, "positive", "negative"))	
+  	
+  if(!is.null(loadings_above)){	
+    loadings_table[abs(loadings_table[,"loading"]) < loadings_above,"loading"] = NA	
+    loadings_table = loadings_table[!is.na(loadings_table[,"loading"]),]	
+  }	
+  	
+  if(!is.null(axes)){	
+  	
+  loadings_table = loadings_table %>% 	
+     filter(factor == paste0("V",axes))	
+  }	
+  	
+  	
+  plot = loadings_table %>% 	
+      ggplot() +	
+      aes(y = loading %>% abs(), x = reorder(variable, abs(loading)), fill = loading, label =       round(loading, 2)) +	
+      geom_col(position = "dodge") +	
+      scale_fill_gradient2() +	
+      coord_flip() +	
+      geom_label(color = "black", fill = "white", fontface = "bold", position = position_dodge(0.5)) +	
+      facet_wrap(~factor) +	
+      labs(y = "Loading strength", x = "Variable")	
+  }	
+}	
+	
+	
+	
+	
+	
+	
+return(plot)	
+	
+}	
+```
+
+Load dataset: 
+```{r}
+animalrights <- read.csv("animalrights.csv",header=TRUE,sep=",")
+
+view(animalrights)
+```
+
+Explore it:
+```{r}
+unique(animalrights$liberal)
+unique(animalrights_na$ar1)
+unique(animalrights$ar2)
+unique(animalrights$ar3)
+unique(animalrights$ar4)
+unique(animalrights_na$ar5)
+unique(animalrights_na$ar7)
+describe(animalrights)
+```
+
+Important to note about my dataset: 
+no "5" answer: ar3, ar4, 
+NA's: ar1, ar2, ar10, ar14, ar18, ar19, ar22, liberal
+So important to explore the data and consider treating this data. I would like to exclude NA's because they will be excluded by the analysis anyways:
+```{r}
+animalrights_na <- drop_na(animalrights)
+
+view(animalrights_na)
+```
+
+Checking data:
+```{r}
+# ar3
+animalrights_na %>%
+  ggplot() +
+  aes(x = ar3) +
+  geom_histogram()
+
+# Liberal
+animalrights_na %>%
+  ggplot() +
+  aes(x = liberal) +
+  geom_histogram()
+
+# Liberal
+animalrights_na %>%
+  ggplot() +
+  aes(x = liberal) +
+  geom_boxplot()
+
+# party, most are coded as none so not helpful
+animalrights_na %>%
+  ggplot() +
+  aes(x = party) +
+  geom_histogram()
+table(animalrights_na$party)
+
+# recode sex because it's not a factor
+animalrights_na %>%
+  ggplot() +
+  aes(x = sex) +
+  geom_bar()
+table(animalrights_na$sex)
+
+#recoding sex:
+animalrights_na$sex <- factor(animalrights_na$sex)
+
+summary(animalrights_na)
+
+str(animalrights_na)
+
+animalrights_na %>% describe()
+```
+
+A linear model and VIF test:
+```{r}
+# We can make a linear model 
+lm_allQ <- lm(liberal ~ ar1+ ar2+ ar3+ ar4+ ar5+ ar6+ ar7+ ar8+ ar9+ ar10+ ar11+ ar12+ ar13+ ar14+ ar15+ ar16+ ar17+ ar18+ ar19+ ar20+ ar21+ ar22+ ar23+ ar24+ ar25+ ar26+ ar27+ ar28, data = animalrights_na)
+
+summary(lm_allQ)
+
+# VIF test
+vif(lm_allQ)
+
+# most are under 3 which shows no multicollinearity, except for ar5, ar13, which is high, and ar6 and ar15 is close.
+```
+
+Vizualising the items:
+```{r}
+ARQ_only <- animalrights_na %>%
+  select(ar1:ar28)
+
+cor_ARQ <- ARQ_only %>%
+    cor()
+
+ggcorr(cor_ARQ)
+
+ggcorrplot(cor(ARQ_only), p.mat = cor_pmat(ARQ_only), hc.order = TRUE, type="lower")
+```
+
+correlation matrix:
+```{r}
+ARQ_cor <- cor(animalrights_na[1:28])
+ARQ_cor
+```
+Bartlett sphericity test:
+in our case, the number of observations is 149 and observed variables is 28 which is = 5,33. 
+it is still more than 5 but close so we can try to run it:
+```{r}
+Barlett_factorability <- cortest.bartlett(ARQ_cor)
+Barlett_factorability
+```
+As we can see it is very significant which means that there is correlation in our dataset.
+
+KMO:
+```{r}
+KMO(ARQ_cor)
+```
+
+multivariate normal distribution tests:
+```{r}
+# test for multiariate normality
+mvn_result <- mvn(animalrights_na[, 1:28], mvnTest = "hz")
+mvn_result$multivariateNormality
+```
+
+```{r}
+# multivariate normality test  based on kurtosis
+mvnorm.kur.test(na.omit(animalrights_na[, 1:28]))
+```
+
+```{r}
+# Multivariate normality test based on skewness
+mvnorm.skew.test(na.omit(animalrights_na[, 1:28]))
+```
+
+First model test:
+```{r}
+# i will use the fa() finction to make my first EFA model. here we will set the fm = parameter to "pa" since we want to use the paf method because of the multivariate normality violation. with the nfactors = we can specify how many factors we want to extract. we will try first with 5. 
+
+AR_EFAmod1 <- fa(ARQ_cor, nfactors = 5, fm = "pa")
+AR_EFAmod1
+AR_EFAmod1_c <- as.data.frame(sort(AR_EFAmod1$communality, decreasing = TRUE))
+AR_EFAmod1_c
+mean(AR_EFAmod1$communality)
+```
+
+**PCA**
+```{r}
+PCA_model <- pca(ARQ_only)
+PCA_model
+
+#make a new PCA model
+which(names(animalrights_na) == "sex")
+which(names(animalrights_na) == "party")
+which(names(animalrights_na) == "liberal")
+
+PCA_model2 <- PCA(animalrights_na, quanti.sup = c(30,31), quali.sup = 29)
+
+summary(PCA_model2)
+```
+
+I need to figure out how many factors i want to extract from the data:
+```{r}
+# Screetest
+
+fviz_screeplot(PCA_model2, addlabels = TRUE, ylim = c(0, 85))	
+
+#Kaiser guttman rule
+get_eigenvalue(PCA_model2)
+
+# Parallel test
+PCA_parallel = paran(ARQ_only, graph = TRUE)
+PCA_parallel$Retained
+
+```
+
+```{r}
+# parallel test
+fa.parallel(ARQ_cor, n.obs = nrow(animalrights_na), fa = "fa", fm = "pa")
+```
+
+VSS and MAP:
+```{r}
+# VSS and MAP test
+nfactors(ARQ_cor, n.obs = nrow(animalrights_na))
+
+VSS_test <-  vss(ARQ_cor, n.obs =nrow(animalrights_na))
+
+VSS.plot(VSS_test)
+```
+
+EFA model with 2 factors:
+```{r}
+AR_EFAmod2 <-  fa(ARQ_cor, nfactors = 2, fm = "pa")
+AR_EFAmod2
+AR_EFAmod2_c <- as.data.frame(sort(AR_EFAmod2$communality, decreasing = TRUE))
+AR_EFAmod2_c
+mean(AR_EFAmod2$communality)
+```
+
+Factor rotation:
+```{r}
+AR_EFAmod2$rotation
+
+# Varimax
+AR_EFAmod2_varimax <- fa(ARQ_cor, nfactors = 2, fm = "pa", rotate = "varimax")
+AR_EFAmod2_varimax 
+# Promax
+AR_EFAmod2_promax <- fa(ARQ_cor, nfactors = 2, fm = "pa", rotate = "promax")
+AR_EFAmod2_promax
+# Oblimin
+AR_EFAmod2_oblimin <- fa(ARQ_cor, nfactors = 2, n.obs =nrow(animalrights_na), fm = "pa", rotate = "oblimin")
+AR_EFAmod2_oblimin
+
+AR_EFAmod2_promax$communality
+```
+
+Diagram function:
+```{r}
+fa.diagram(AR_EFAmod2_varimax )
+
+fviz_loadnings_with_cor(AR_EFAmod2_oblimin, axes = 1, loadings_above = 0.4)
+```
+
+New model building. i extracted ar16, because it didn't have any high correlation in any of the factors, further, by looking at the questions, it might be a causal relationship or be a result of confounding, as it was a religious question, which didn't fit into the themes of the other questions:
+```{r}
+cormod3 <- cor(animalrights_na[, - c(16,29,30,31)])
+AR_EFAmod3_varimax <- fa(cormod3, nfactors = 2, fm = "pa", rotate = "varimax")
+AR_EFAmod3_varimax 
+
+AR_EFAmod3_promax <- fa(cormod3, nfactors = 2, fm = "pa", rotate = "promax")
+AR_EFAmod3_promax
+
+mean(AR_EFAmod3_promax$communality)
+
+print(AR_EFAmod3_promax$loadings, cutoff = 0.3)
+fa.diagram(AR_EFAmod3_varimax )
+```
+
+I would like to remove ar11 as it seems to have a very low loading
+```{r}
+cormod4 <- cor(animalrights_na[, - c(11,16,29,30,31)])
+
+AR_EFAmod4_promax <- fa(cormod4, nfactors = 2, fm = "pa", rotate = "promax")
+AR_EFAmod4_promax
+
+mean(AR_EFAmod4_promax$communality)
+AR_EFAmod4_promax$communality
+
+print(AR_EFAmod4_promax$loadings, cutoff = 0.3)
+
+AR_EFAmod4_c <- as.data.frame(sort(AR_EFAmod4_promax$communality, decreasing = TRUE))
+AR_EFAmod4_c
+```
+After a few tries, i change it to three factors as it covers the theory better, and improves communality:
+```{r}
+cormod3.2 <- cor(animalrights_na[, - c(16,29,30,31)])
+AR_EFAmod3_varimax <- fa(cormod3.2, nfactors = 3, fm = "pa", rotate = "varimax")
+AR_EFAmod3_varimax 
+
+AR_EFAmod3_promax <- fa(cormod3.2, nfactors = 3, fm = "pa", rotate = "promax")
+AR_EFAmod3_promax
+
+mean(AR_EFAmod3$communality)
+print(AR_EFAmod3_promax$loadings, cutoff = 0.3)
+
+fa.diagram(AR_EFAmod3_promax)
+?fa.diagram
+AR_EFAmod3_promax$communality
+```
+I would like to remove ar12 as it seems to be in between 2 factors:
+```{r}
+cormod4.2 <- cor(animalrights_na[, - c(12,16,29,30,31)])
+
+AR_EFAmod4_promax <- fa(cormod4.2, nfactors = 3, fm = "pa", rotate = "promax")
+AR_EFAmod4_promax
+
+mean(AR_EFAmod4_promax$communality)
+
+print(AR_EFAmod4_promax$loadings, cutoff = 0.3)
+
+AR_EFAmod4_c <- as.data.frame(sort(AR_EFAmod4_promax$communality, decreasing = TRUE))
+AR_EFAmod4_c
+
+fa.diagram(AR_EFAmod4_promax)
+
+```
+ar8 has a very low communality (0.15), which is why i want to remove it: 
+```{r}
+cormod5 <- cor(animalrights_na[, - c(8,12,16,29,30,31)])
+AR_EFAmod5 <- fa(cormod5, nfactors = 3, fm = "pa")
+AR_EFAmod5_promax <- fa(cormod5, nfactors = 3, fm = "pa", rotate = "promax")
+AR_EFAmod5_promax
+
+mean(AR_EFAmod5_promax$communality)
+
+print(AR_EFAmod5_promax$loadings, cutoff = 0.3)
+
+AR_EFAmod5_c <- as.data.frame(sort(AR_EFAmod5_promax$communality, decreasing = TRUE))
+AR_EFAmod5_c
+
+AR_EFAmod5_varimax <- fa(ARQ_cor[, - c(12,15,16)], nfactors = 2, fm = "pa", rotate = "varimax")
+AR_EFAmod5_varimax
+print(AR_EFAmod5_varimax$loadings, cutoff = 0.3)
+# doesn't seem as if varimax works for my analysis. I will continue using promax. I allow some overlapping as some of the questions are close to each other, and all concern animal rights.
+fa.diagram(AR_EFAmod5_promax )
+
+fviz_loadnings_with_cor(AR_EFAmod5_promax, axes = 1, loadings_above = 0.4)
+fviz_loadnings_with_cor(AR_EFAmod5_promax, axes = 2, loadings_above = 0.4)
+```
+Question ar3 is so low, that it is not even loading at the 0.3 mark of main loadings. i remove it. 
+```{r}
+cormod6 <- cor(animalrights_na[, - c(3,8,12,16,29,30,31)])
+
+AR_EFAmod6_promax <- fa(cormod6, nfactors = 3, fm = "pa", rotate = "promax")
+AR_EFAmod6_promax
+
+AR_EFAmod6_oblimin <- fa(cormod6, nfactors = 3, fm = "pa", rotate = "oblimin")
+AR_EFAmod6_oblimin
+
+mean(AR_EFAmod6_promax$communality)
+
+print(AR_EFAmod6_promax$loadings, cutoff = 0.3)
+print(AR_EFAmod6_oblimin$loadings, cutoff = 0.3)
+
+AR_EFAmod6_c <- as.data.frame(sort(AR_EFAmod6_promax$communality, decreasing = TRUE))
+AR_EFAmod6_c
+
+fviz_loadnings_with_cor(AR_EFAmod6_promax, axes = 2, loadings_above = 0.4)
+```
+now ar14 is super low and will be removed as well. it also has the lowest communality:
+```{r}
+cormod7 <- cor(animalrights_na[, - c(3,8,12,14,16,29,30,31)])
+
+AR_EFAmod7_promax <- fa(cormod7, nfactors = 3, fm = "pa", rotate = "promax")
+AR_EFAmod7_promax
+
+mean(AR_EFAmod7_promax$communality)
+
+print(AR_EFAmod7_promax$loadings, cutoff = 0.3)
+fa.diagram(AR_EFAmod7_promax)
+```
+Further, i want to remove ar18 because it is giving opposite results, and the main loadings are low in both, creating cross loadings:
+```{r}
+cormod8 <- cor(animalrights_na[, - c(3,8,12,14,16,18,29,30,31)])
+
+AR_EFAmod8_promax <- fa(cormod8, nfactors = 3, fm = "pa", rotate = "promax")
+AR_EFAmod8_promax
+
+mean(AR_EFAmod8_promax$communality)
+AR_EFAmod8_promax$communality
+
+print(AR_EFAmod8_promax$loadings, cutoff = 0.3)
+fa.diagram(AR_EFAmod7_promax)
+```
+as ar1 seems to be the one with lowest loadings and low communality, i will remove it next:
+```{r}
+cormod9 <- cor(animalrights_na[, - c(1,3,8,12,14,16,18,29,30,31)])
+
+AR_EFAmod9_promax <- fa(cormod9, nfactors = 3, fm = "pa", rotate = "promax")
+AR_EFAmod9_promax
+
+mean(AR_EFAmod9_promax$communality)
+
+print(AR_EFAmod9_promax$loadings, cutoff = 0.3)
+fa.diagram(AR_EFAmod9_promax)
+
+fviz_loadnings_with_cor(AR_EFAmod9_promax, axes = 1, loadings_above = 0.4)
+fviz_loadnings_with_cor(AR_EFAmod9_promax, axes = 2, loadings_above = 0.4)
+```
+ar11 is removed as it has no function in factor 2:
+```{r}
+cormod10 <- cor(animalrights_na[, - c(1,3,8,11,12,14,16,18,29,30,31)])
+
+AR_EFAmod10_promax <- fa(cormod10, nfactors = 3, fm = "pa", rotate = "promax")
+AR_EFAmod10_promax
+
+mean(AR_EFAmod10_promax$communality)
+AR_EFAmod10_promax$communality
+
+print(AR_EFAmod10_promax$loadings, cutoff = 0.3)
+fa.diagram(AR_EFAmod10_promax)
+
+fviz_loadnings_with_cor(AR_EFAmod10_promax, axes = 1, loadings_above = 0.4) + labs(title= "Aganst Using Animals in Research")
+fviz_loadnings_with_cor(AR_EFAmod10_promax, axes = 2, loadings_above = 0.4) + labs(title= "Pro Vegan Attitudes")
+fviz_loadnings_with_cor(AR_EFAmod10_promax, axes = 3, loadings_above = 0.4) + labs(title= "Traditional Attitudes to Animals")
+```
+add model to dataframe:
+```{r}
+Factors <- factor.scores(animalrights_na[,-c(1,3,8,11,12,14,16,18,29,30,31)],AR_EFAmod10_promax)$scores
+colnames(Factors) <-  c("research", "pro_vegan","traditional")
+
+view(Factors)
+
+final_data <- cbind(animalrights_na[,-c(1,3,8,11,12,14,16,18)],Factors)
+
+view(final_data)
+```
+
+now i want to make a linear model predicting how conservative or liberal the participants are:
+```{r}
+plot(final_data$liberal,final_data$research)
+
+plot(final_data$liberal, final_data$animal_killing)
+
+predict_liberal <-  lm(liberal ~ research + pro_vegan + traditional, data= final_data)
+
+summary(predict_liberal)
+
+vif(predict_liberal) # ikke multicollinearitet
+```
+ 
